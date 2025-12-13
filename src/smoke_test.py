@@ -6,10 +6,7 @@ import time
 import os
 
 # --- Configuration for Higher Smoke Test ---
-# START HERE. Manually increment this value for subsequent runs.
-# TEST_BATCH_SIZE = 6
-# TEST_BATCH_SIZE = 8  # Use this for the next run if B=6 succeeds!
-TEST_BATCH_SIZE = 16  # Use this for the next run if B=8 succeeds!
+TEST_BATCH_SIZE = 16
 
 MAX_SEQ_LENGTH = 128
 EMBEDDING_DIM = 768
@@ -21,12 +18,10 @@ def check_gpu():
     """Checks for GPU and reports available VRAM."""
     if DEVICE.type == "cuda":
         total_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-        print("=" * 60)
-        print(f"✅ GPU Detected: {torch.cuda.get_device_name(0)}")
+        print(f"GPU Detected: {torch.cuda.get_device_name(0)}")
         print(f"Total VRAM: {total_mem:.2f} GB. Testing Batch Size: {TEST_BATCH_SIZE}")
-        print("=" * 60)
     else:
-        print("❌ WARNING: GPU not found. VRAM test aborted.")
+        print("GPU not found.")
     return DEVICE
 
 
@@ -41,7 +36,6 @@ def print_vram_usage(step_name):
 
 
 class LateFusionModel(nn.Module):
-    # (Model definition remains exactly the same as before)
     def __init__(self, output_dim):
         super().__init__()
         self.image_model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1)
@@ -85,7 +79,7 @@ def run_smoke_test(device):
 
         # Use PyTorch's native AMP utility
         scaler = torch.amp.GradScaler("cuda")
-        print("   ✅ Mixed Precision (FP16) GradScaler Initialized.")
+        print("Mixed Precision (FP16) GradScaler Initialized.")
 
         # --- 2. Create Dummy Data ---
         print(f"[STEP 2] Generating Dummy Data (Batch Size: {TEST_BATCH_SIZE})...")
@@ -126,7 +120,7 @@ def run_smoke_test(device):
             model,
         )
         torch.cuda.empty_cache()
-        print("   ✅ Cleanup successful. VRAM usage released.")
+        print(" Cleanup successful. VRAM usage released.")
 
         print(f"\n[VERDICT B={TEST_BATCH_SIZE}]")
         print(f"✨ SUCCESS: Batch Size {TEST_BATCH_SIZE} is stable. ✨")
@@ -134,7 +128,7 @@ def run_smoke_test(device):
     except RuntimeError as e:
         if "out of memory" in str(e):
             print("-" * 60)
-            print(f"❌ OUT-OF-MEMORY ERROR at Batch Size {TEST_BATCH_SIZE}!")
+            print(f"OUT-OF-MEMORY ERROR at Batch Size {TEST_BATCH_SIZE}!")
             print(
                 f"The VRAM ceiling is the previous successful batch size (B_max = {TEST_BATCH_SIZE - 2} or {TEST_BATCH_SIZE - 4})."
             )
