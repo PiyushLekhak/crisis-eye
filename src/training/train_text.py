@@ -24,8 +24,9 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.cuda.amp import autocast
 from torch import amp
+import subprocess
+from transformers import DistilBertTokenizer
 
 
 from sklearn.metrics import classification_report, f1_score
@@ -36,7 +37,8 @@ from src.models.text_model import DistilBertTextClassifier
 
 # -------------------- CONFIG --------------------
 SEED = 42
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+USE_CUDA = torch.cuda.is_available()
+DEVICE = "cuda" if USE_CUDA else "cpu"
 
 # Hyperparameters (sensible defaults + easy to tune)
 BATCH_SIZE = 16
@@ -63,7 +65,7 @@ PIN_MEMORY = True if DEVICE == "cuda" else False
 
 # AMP scaler (mixed precision)
 # Mixed precision speeds up training and reduces memory consumption on modern GPUs.
-scaler = amp.GradScaler(device="cuda")
+scaler = amp.GradScaler(enabled=USE_CUDA)
 # ---------------------------------------------------
 
 
@@ -99,7 +101,7 @@ def train_one_epoch(model, loader, optimizer, criterion, device, grad_clip=None)
         labels = batch["label"].to(device)
 
         # Mixed precision context
-        with amp.autocast("cuda"):
+        with amp.autocast(device_type=DEVICE, enabled=USE_CUDA):
             logits = model(input_ids, attention_mask)
             loss = criterion(logits, labels)
 
@@ -129,7 +131,7 @@ def evaluate(model, loader, device):
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["label"].to(device)
 
-            with amp.autocast("cuda"):
+            with amp.autocast(device_type=DEVICE, enabled=USE_CUDA):
                 logits = model(input_ids, attention_mask)
 
             preds = torch.argmax(logits, dim=1)
@@ -242,6 +244,67 @@ def main():
         f.write(
             f"\nTraining finished. Best Val macro-F1: {best_f1:.4f}\nTotal time (min): {total_time_min:.2f}\n"
         )
+
+    # save_artifacts(best_f1) # Uncomment to save artifacts automatically after training
+
+
+def save_artifacts(best_f1):
+    """
+    Save tokenizer, label mapping, and frozen run configuration
+    for the DistilBERT text baseline.
+    Called automatically if training is run again.
+    """
+
+    artifacts_dir = Path("artifacts/text_baseline")
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    # ---- Tokenizer ----
+    tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+    tokenizer.save_pretrained(artifacts_dir / "tokenizer")
+
+    # ---- Label mapping ----
+    label_map = {
+        "label2id": {"High": 0, "Medium": 1, "Low": 2},
+        "id2label": {"0": "High", "1": "Medium", "2": "Low"},
+    }
+    with open(artifacts_dir / "label_map.json", "w") as f:
+        json.dump(label_map, f, indent=2)
+
+    # ---- Git commit ----
+    try:
+        git_sha = (
+            subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
+    except Exception:
+        git_sha = "unknown"
+
+    # ---- Run config ----
+    run_config = {
+        "model": "distilbert-base-uncased",
+        "num_classes": NUM_CLASSES,
+        "max_len": MAX_LEN,
+        "batch_size": BATCH_SIZE,
+        "learning_rate": LR,
+        "weight_decay": WEIGHT_DECAY,
+        "max_epochs": MAX_EPOCHS,
+        "patience": PATIENCE,
+        "grad_clip": GRAD_CLIP,
+        "seed": SEED,
+        "best_val_macro_f1": best_f1,
+        "checkpoint_path": str(BEST_MODEL_PATH),
+        "train_data": TRAIN_PATH,
+        "val_data": VAL_PATH,
+        "git_commit": git_sha,
+    }
+
+    with open(artifacts_dir / "run_config.json", "w") as f:
+        json.dump(run_config, f, indent=2)
+
+    print(f"Artifacts saved to {artifacts_dir.resolve()}")
 
 
 if __name__ == "__main__":

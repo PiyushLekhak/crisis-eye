@@ -2,5 +2,4 @@
 data/
 __pycache__/
 .env/
-checkpoints/
 *.pt

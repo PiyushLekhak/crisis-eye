@@ -1,0 +1,18 @@
+{
+  "model": "distilbert-base-uncased",
+  "num_classes": 3,
+  "max_len": 128,
+  "batch_size": 16,
+  "learning_rate": 2e-05,
+  "weight_decay": 0.01,
+  "max_epochs": 10,
+  "patience": 3,
+  "grad_clip": 1.0,
+  "seed": 42,
+  "best_val_macro_f1": 0.5065,
+  "best_epoch": 3,
+  "stopped_epoch": 6,
+  "checkpoint_path": "checkpoints/text_baseline_best.pt",
+  "train_data": "data/crisismmd_datasplit_all/task_humanitarian_text_img_train.tsv",
+  "val_data": "data/crisismmd_datasplit_all/task_humanitarian_text_img_dev.tsv"
+}
