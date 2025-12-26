@@ -1,0 +1,19 @@
+{
+  "model": "resnet50",
+  "pretrained_weights": "IMAGENET1K_V1",
+  "frozen_backbone": true,
+  "num_classes": 3,
+  "batch_size": 32,
+  "learning_rate": 0.0001,
+  "weight_decay": 0.0001,
+  "max_epochs": 15,
+  "patience": 5,
+  "grad_clip": 1.0,
+  "seed": 42,
+  "best_val_macro_f1": 0.6756004543512947,
+  "checkpoint_path": "checkpoints/image_baseline_best.pt",
+  "train_data": "data/crisismmd_datasplit_all/task_humanitarian_text_img_train.tsv",
+  "val_data": "data/crisismmd_datasplit_all/task_humanitarian_text_img_dev.tsv",
+  "image_dir": "data/",
+  "git_commit": "77271ad251dab03cfad8a8b287a12e7ffffed363"
+}

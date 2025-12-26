@@ -1,0 +1,42 @@
+{
+  "train": {
+    "resize": [
+      256,
+      256
+    ],
+    "crop": [
+      224,
+      224
+    ],
+    "horizontal_flip": 0.5,
+    "normalize_mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "normalize_std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "val": {
+    "resize": [
+      256
+    ],
+    "center_crop": [
+      224,
+      224
+    ],
+    "normalize_mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "normalize_std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  }
+}

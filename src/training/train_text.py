@@ -245,7 +245,7 @@ def main():
             f"\nTraining finished. Best Val macro-F1: {best_f1:.4f}\nTotal time (min): {total_time_min:.2f}\n"
         )
 
-    # save_artifacts(best_f1) # Uncomment to save artifacts automatically after training
+    save_artifacts(best_f1)
 
 
 def save_artifacts(best_f1):
