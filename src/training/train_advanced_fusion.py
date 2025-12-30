@@ -1,23 +1,16 @@
 """
-Late Fusion training script for Crisis-Eye.
-Combines pretrained Text (DistilBERT) and Image (ResNet50) models.
+Advanced Fusion training script for Crisis-Eye.
+Architecture: Cross-Attention Fusion (Transformer)
 Training Strategy:
-- Freeze unimodal backbones (Text + Image encoders)
-- Train only the fusion head (MLP classifier)
-- Use pretrained baseline checkpoints as initialization
-- Class-weighted CrossEntropy for imbalance
-- AdamW + weight decay
-- ReduceLROnPlateau scheduler (monitors val macro-F1)
-- Early stopping (patience=3)
-- Gradient clipping
-- Mixed precision (AMP)
-- ONLY saves the BEST model
+- Partial Unfreezing: Trains Fusion Head + Last Layer of Text + Last Block of Image
+- Lower Learning Rate: To prevent destroying pretrained backbone weights
+- Weight Decay: Increased to prevent overfitting on unfrozen layers
+- Mixed Precision (AMP): For memory efficiency
 """
 
 import os
 import time
 import random
-import json
 import numpy as np
 from pathlib import Path
 import argparse
@@ -31,21 +24,21 @@ from torch import amp
 
 from sklearn.metrics import classification_report, f1_score
 
+# --- IMPORTS ---
 from src.datasets.multimodal_dataset import CrisisMultimodalDataset
-from src.models.fusion_model import LateFusionModel
-
+from src.models.advanced_fusion import AdvancedFusionModel  # <--- NEW MODEL
 
 # -------------------- CONFIG --------------------
 SEED = 42
 USE_CUDA = torch.cuda.is_available()
 DEVICE = "cuda" if USE_CUDA else "cpu"
 
-# Hyperparameters (fusion-specific)
-BATCH_SIZE = 16  # Lower than image baseline due to dual encoders
-MAX_EPOCHS = 10  # Fusion converges faster than baselines
-PATIENCE = 3  # Standard patience for fusion head training
-LR = 5e-5  # Low LR for fine-tuning fusion head
-WEIGHT_DECAY = 1e-4  # Standard L2 regularization
+# Hyperparameters (Adjusted for Unfrozen Training)
+BATCH_SIZE = 16
+MAX_EPOCHS = 10
+PATIENCE = 5  # Increased slightly as unfrozen models need time to settle
+LR = 2e-5  # <--- LOWER LR (Critical for unfrozen backbones)
+WEIGHT_DECAY = 1e-2  # <--- HIGHER DECAY (Standard for Transformers to stop overfitting)
 GRAD_CLIP = 1.0
 NUM_CLASSES = 3
 
@@ -56,14 +49,13 @@ IMG_DIR = "data/"
 
 CHECKPOINT_DIR = Path("checkpoints")
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-BEST_MODEL_PATH = CHECKPOINT_DIR / "fusion_best.pt"
-REPORT_PATH = CHECKPOINT_DIR / "fusion_report.txt"
+BEST_MODEL_PATH = CHECKPOINT_DIR / "advanced_fusion_best.pt"
+REPORT_PATH = CHECKPOINT_DIR / "advanced_fusion_report.txt"
 
 # DataLoader speedups
 NUM_WORKERS = 4
 PIN_MEMORY = True if DEVICE == "cuda" else False
 
-# AMP scaler (mixed precision)
 scaler = amp.GradScaler(enabled=USE_CUDA)
 # ---------------------------------------------------
 
@@ -79,10 +71,10 @@ def seed_everything(seed: int):
 
 
 def compute_class_weights(dataset, num_classes=NUM_CLASSES):
-    """Same logic as text/image baselines - compute inverse frequency weights"""
+    """Inverse frequency weights to handle class imbalance"""
     labels = [int(dataset[i]["label"]) for i in range(len(dataset))]
     class_counts = np.bincount(labels, minlength=num_classes)
-    class_counts = np.where(class_counts == 0, 1, class_counts)  # avoid div0
+    class_counts = np.where(class_counts == 0, 1, class_counts)
     weights = 1.0 / class_counts
     weights = weights / weights.sum() * num_classes
     return torch.tensor(weights, dtype=torch.float)
@@ -101,14 +93,15 @@ def train_one_epoch(model, loader, optimizer, criterion, device, grad_clip=None)
         images = batch["image"].to(device)
         labels = batch["label"].to(device)
 
-        # Mixed precision context
-        with amp.autocast(device_type=DEVICE, enabled=USE_CUDA):
+        # Mixed precision
+        with amp.autocast(
+            device_type="cuda" if torch.cuda.is_available() else "cpu", enabled=USE_CUDA
+        ):
             logits = model(input_ids, attention_mask, images)
             loss = criterion(logits, labels)
 
         scaler.scale(loss).backward()
 
-        # Gradient clipping
         if grad_clip is not None:
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
@@ -133,7 +126,10 @@ def evaluate(model, loader, device):
             images = batch["image"].to(device)
             labels = batch["label"].to(device)
 
-            with amp.autocast(device_type=DEVICE, enabled=USE_CUDA):
+            with amp.autocast(
+                device_type="cuda" if torch.cuda.is_available() else "cpu",
+                enabled=USE_CUDA,
+            ):
                 logits = model(input_ids, attention_mask, images)
 
             preds = torch.argmax(logits, dim=1)
@@ -152,7 +148,6 @@ def main(args):
     print(f"Device: {DEVICE}")
     print("Loading datasets...")
 
-    # Load multimodal datasets
     train_dataset = CrisisMultimodalDataset(TRAIN_PATH, IMG_DIR, split="train")
     val_dataset = CrisisMultimodalDataset(VAL_PATH, IMG_DIR, split="val")
 
@@ -160,6 +155,7 @@ def main(args):
         train_dataset,
         batch_size=BATCH_SIZE,
         shuffle=True,
+        drop_last=True,
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY,
     )
@@ -171,120 +167,92 @@ def main(args):
         pin_memory=PIN_MEMORY,
     )
 
-    # Class weights and criterion
     class_weights = compute_class_weights(train_dataset).to(DEVICE)
     print("Class weights:", class_weights.tolist())
 
-    # Model (loads pretrained text + image backbones, freezes them)
-    print(f"\nInitializing Fusion Model...")
+    # --- Initialize Advanced Fusion Model ---
+    print(f"\nInitializing Advanced Fusion Model (Cross-Attention)...")
     print(f"Text checkpoint: {args.text_checkpoint}")
     print(f"Image checkpoint: {args.image_checkpoint}")
 
-    model = LateFusionModel(
+    model = AdvancedFusionModel(
         num_classes=NUM_CLASSES,
         text_checkpoint=args.text_checkpoint,
         image_checkpoint=args.image_checkpoint,
-        freeze_backbones=True,  # Only train fusion head
+        common_dim=512,
+        dropout=0.3,
     ).to(DEVICE)
 
-    # Count trainable parameters
+    # Check trainable params (Should be much higher than late fusion, but lower than full finetune)
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Trainable parameters: {trainable_params:,} / {total_params:,}")
+    print("(Includes Fusion Head + Last DistilBERT Layer + Last ResNet Block)")
 
     criterion = nn.CrossEntropyLoss(weight=class_weights)
+
+    # Optimizer with higher weight decay for regularization
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=LR,
         weight_decay=WEIGHT_DECAY,
     )
+
     scheduler = ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=2)
 
     best_f1 = 0.0
     patience_counter = 0
 
-    # Initialize report file
     with open(REPORT_PATH, "w") as f:
-        f.write("Fusion Model Training Report (Late Fusion)\n")
-        f.write(f"Seed: {SEED}\n")
-        f.write(
-            f"Config: LR={LR}, BATCH_SIZE={BATCH_SIZE}, WEIGHT_DECAY={WEIGHT_DECAY}\n"
-        )
-        f.write(f"Trainable params: {trainable_params:,} / {total_params:,}\n")
-        f.write(f"Text checkpoint: {args.text_checkpoint}\n")
-        f.write(f"Image checkpoint: {args.image_checkpoint}\n\n")
+        f.write("Advanced Fusion Model Training Report (Cross-Attention)\n")
+        f.write(f"Config: LR={LR}, BATCH={BATCH_SIZE}, WD={WEIGHT_DECAY}\n")
+        f.write(f"Trainable: {trainable_params:,}\n\n")
 
     t0 = time.time()
     for epoch in range(1, MAX_EPOCHS + 1):
-        t_epoch_start = time.time()
-        train_loss = train_one_epoch(
-            model, train_loader, optimizer, criterion, DEVICE, grad_clip=GRAD_CLIP
-        )
+        t_start = time.time()
 
+        train_loss = train_one_epoch(
+            model, train_loader, optimizer, criterion, DEVICE, GRAD_CLIP
+        )
         val_macro_f1, report = evaluate(model, val_loader, DEVICE)
 
         print(
-            f"\nEpoch {epoch}/{MAX_EPOCHS} — Train loss: {train_loss:.4f} — Val macro-f1: {val_macro_f1:.4f}"
+            f"\nEpoch {epoch}/{MAX_EPOCHS} — Loss: {train_loss:.4f} — Val F1: {val_macro_f1:.4f}"
         )
         print(report)
 
-        # Log to file
         with open(REPORT_PATH, "a") as f:
-            f.write(f"\nEpoch {epoch}\n")
-            f.write(f"Train loss: {train_loss:.4f}\n")
-            f.write(f"Val macro-f1: {val_macro_f1:.4f}\n")
-            f.write(report)
-            f.write("\n" + "=" * 50 + "\n")
+            f.write(f"Epoch {epoch}: Loss={train_loss:.4f}, F1={val_macro_f1:.4f}\n")
+            f.write(report + "\n" + "=" * 50 + "\n")
 
-        # Save only BEST model
         if val_macro_f1 > best_f1 + 1e-6:
             best_f1 = val_macro_f1
             patience_counter = 0
             torch.save(model.state_dict(), BEST_MODEL_PATH)
-            print(f"New best model saved to: {BEST_MODEL_PATH} (F1: {best_f1:.4f})")
+            print(f"Saved Best Model: {BEST_MODEL_PATH}")
         else:
             patience_counter += 1
             print(f"No improvement. Patience: {patience_counter}/{PATIENCE}")
 
-        # Scheduler step
         scheduler.step(val_macro_f1)
 
-        # Early stopping
         if patience_counter >= PATIENCE:
-            print(
-                f"Early stopping at epoch {epoch} (no improvement for {PATIENCE} epochs)."
-            )
+            print(f"Early stopping at epoch {epoch}")
             break
 
-        t_epoch_end = time.time()
-        print(f"Epoch time: {(t_epoch_end - t_epoch_start):.1f} sec")
+        print(f"Time: {(time.time() - t_start):.1f}s")
 
-    total_time_min = (time.time() - t0) / 60.0
-    print(
-        f"\nTraining finished. Total time: {total_time_min:.2f} minutes. Best Val macro-F1: {best_f1:.4f}"
-    )
-
-    # Final report append
-    with open(REPORT_PATH, "a") as f:
-        f.write(
-            f"\nTraining finished. Best Val macro-F1: {best_f1:.4f}\nTotal time (min): {total_time_min:.2f}\n"
-        )
+    print(f"\nDone. Best F1: {best_f1:.4f}. Total time: {(time.time()-t0)/60:.1f}m")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train Late Fusion Model")
+    parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--text_checkpoint",
-        type=str,
-        default="checkpoints/text_baseline_best.pt",
-        help="Path to text baseline checkpoint",
+        "--text_checkpoint", type=str, default="checkpoints/text_baseline_best.pt"
     )
     parser.add_argument(
-        "--image_checkpoint",
-        type=str,
-        default="checkpoints/image_baseline_best.pt",
-        help="Path to image baseline checkpoint",
+        "--image_checkpoint", type=str, default="checkpoints/image_baseline_best.pt"
     )
     args = parser.parse_args()
-
     main(args)

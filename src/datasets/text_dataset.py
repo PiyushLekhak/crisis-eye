@@ -1,13 +1,13 @@
 import torch
 import pandas as pd
 from torch.utils.data import Dataset
-from transformers import DistilBertTokenizer
+from transformers import AutoTokenizer
 
 
 class CrisisTextDataset(Dataset):
     def __init__(self, tsv_file, max_len=128):
         self.data = pd.read_csv(tsv_file, sep="\t")
-        self.tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+        self.tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
         self.max_len = max_len
 
         self.label_map = {

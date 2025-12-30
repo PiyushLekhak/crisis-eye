@@ -1,0 +1,85 @@
+Fusion Model Training Report (Late Fusion)
+Seed: 42
+Config: LR=5e-05, BATCH_SIZE=16, WEIGHT_DECAY=0.0001
+Trainable params: 1,446,150 / 91,317,062
+Text checkpoint: checkpoints/text_baseline_best.pt
+Image checkpoint: checkpoints/image_baseline_best.pt
+
+
+Epoch 1
+Train loss: 0.3573
+Val macro-f1: 0.5955
+              precision    recall  f1-score   support
+
+        High     0.2903    0.2069    0.2416        87
+      Medium     0.6532    0.7569    0.7012       724
+         Low     0.8720    0.8170    0.8436      1426
+
+    accuracy                         0.7738      2237
+   macro avg     0.6052    0.5936    0.5955      2237
+weighted avg     0.7786    0.7738    0.7741      2237
+
+==================================================
+
+Epoch 2
+Train loss: 0.2857
+Val macro-f1: 0.6238
+              precision    recall  f1-score   support
+
+        High     0.2832    0.3678    0.3200        87
+      Medium     0.6979    0.6892    0.6935       724
+         Low     0.8630    0.8527    0.8578      1426
+
+    accuracy                         0.7810      2237
+   macro avg     0.6147    0.6366    0.6238      2237
+weighted avg     0.7870    0.7810    0.7838      2237
+
+==================================================
+
+Epoch 3
+Train loss: 0.2653
+Val macro-f1: 0.6235
+              precision    recall  f1-score   support
+
+        High     0.2517    0.4253    0.3162        87
+      Medium     0.6761    0.7238    0.6991       724
+         Low     0.8913    0.8219    0.8552      1426
+
+    accuracy                         0.7747      2237
+   macro avg     0.6064    0.6570    0.6235      2237
+weighted avg     0.7968    0.7747    0.7837      2237
+
+==================================================
+
+Epoch 4
+Train loss: 0.2595
+Val macro-f1: 0.6099
+              precision    recall  f1-score   support
+
+        High     0.3400    0.1954    0.2482        87
+      Medium     0.6937    0.7445    0.7182       724
+         Low     0.8681    0.8583    0.8632      1426
+
+    accuracy                         0.7957      2237
+   macro avg     0.6339    0.5994    0.6099      2237
+weighted avg     0.7911    0.7957    0.7923      2237
+
+==================================================
+
+Epoch 5
+Train loss: 0.2489
+Val macro-f1: 0.6227
+              precision    recall  f1-score   support
+
+        High     0.3014    0.2529    0.2750        87
+      Medium     0.7158    0.7307    0.7232       724
+         Low     0.8702    0.8696    0.8699      1426
+
+    accuracy                         0.8006      2237
+   macro avg     0.6291    0.6177    0.6227      2237
+weighted avg     0.7981    0.8006    0.7993      2237
+
+==================================================
+
+Training finished. Best Val macro-F1: 0.6238
+Total time (min): 3.58

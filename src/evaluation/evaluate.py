@@ -26,6 +26,8 @@ from src.datasets.image_dataset import CrisisImageDataset
 from src.models.text_model import DistilBertTextClassifier
 from src.models.image_model import ResNetImageClassifier
 from transformers import AutoTokenizer
+from src.datasets.multimodal_dataset import CrisisMultimodalDataset
+from src.models.fusion_model import LateFusionModel
 
 # -------------------------
 # CONSTANTS
@@ -92,19 +94,25 @@ def evaluate_model(model, dataloader, device, modality):
     all_labels = []
 
     for batch in dataloader:
-        if "label" in batch:
-            labels = batch["label"].to(device)
-        else:
-            labels = batch["labels"].to(device)
+        labels = batch["label"].to(device)
 
         if modality == "text":
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             outputs = model(input_ids, attention_mask)
+
         elif modality == "image":
-            # Note: Your ImageDataset returns "pixel_values"
             pixel_values = batch["pixel_values"].to(device)
             outputs = model(pixel_values)
+
+        elif modality == "fusion":
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            images = batch["image"].to(device)
+            outputs = model(input_ids, attention_mask, images)
+
+        else:
+            raise ValueError("Unsupported modality")
 
         preds = torch.argmax(outputs, dim=1)
 
@@ -165,8 +173,27 @@ def main(args):
             num_classes=args.num_classes, freeze_backbone=True
         )
 
+    elif args.modality == "fusion":
+        test_dataset = CrisisMultimodalDataset(
+            tsv_file=TEST_DATA_PATH,
+            img_dir=IMG_DIR,
+            max_len=args.max_len,
+            split="test",
+        )
+
+        test_loader = torch.utils.data.DataLoader(
+            test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4
+        )
+
+        model = LateFusionModel(
+            num_classes=args.num_classes,
+            text_checkpoint=args.text_checkpoint,  # Correct text checkpoint
+            image_checkpoint=args.image_checkpoint,  # Correct image checkpoint
+            freeze_backbones=True,
+        )
+
     else:
-        raise ValueError("Modality must be one of: text | image")
+        raise ValueError("Modality must be one of: text | image | fusion")
 
     # =====================
     # Load checkpoint
@@ -228,7 +255,8 @@ def main(args):
     # Save outputs
     # =====================
     # 1. Metrics JSON
-    metrics_path = output_dir / f"{args.modality}_baseline_test_metrics.json"
+    suffix = "fusion" if args.modality == "fusion" else "baseline"
+    metrics_path = output_dir / f"{args.modality}_{suffix}_test_metrics.json"
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=4)
 
@@ -236,15 +264,13 @@ def main(args):
     df = pd.DataFrame({"true_label": labels, "pred_label": preds})
     df["label_name_true"] = df["true_label"].map({0: "High", 1: "Medium", 2: "Low"})
     df["label_name_pred"] = df["pred_label"].map({0: "High", 1: "Medium", 2: "Low"})
-    df_path = output_dir / f"{args.modality}_baseline_test_predictions.csv"
+    df_path = output_dir / f"{args.modality}_{suffix}_test_predictions.csv"
     df.to_csv(df_path, index=False)
 
     # 3. Confusion matrix
     cm = confusion_matrix(labels, preds)
-    cm_path = output_dir / f"{args.modality}_baseline_test_confusion_matrix.png"
+    cm_path = output_dir / f"{args.modality}_{suffix}_test_confusion_matrix.png"
     save_confusion_matrix(cm, class_names, cm_path)
-
-    print(f"\nSaved metrics and artifacts to {output_dir}")
 
 
 # -------------------------
@@ -254,18 +280,36 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--modality", type=str, required=True, choices=["text", "image"]
+        "--modality", type=str, required=True, choices=["text", "image", "fusion"]
     )
     parser.add_argument("--checkpoint_path", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="artifacts/eval_results")
+
+    # Add the following arguments for fusion mode
+    parser.add_argument(
+        "--text_checkpoint",
+        type=str,
+        required=False,
+        help="Path to text baseline checkpoint (fusion only)",
+    )
+    parser.add_argument(
+        "--image_checkpoint",
+        type=str,
+        required=False,
+        help="Path to image baseline checkpoint (fusion only)",
+    )
 
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--max_len", type=int, default=128)
     parser.add_argument("--num_classes", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
 
+    # Parse command-line arguments
     args = parser.parse_args()
+
+    # Call the main function with the parsed arguments
     main(args)
 
 # python -m src.evaluation.evaluate --modality text --checkpoint_path checkpoints/text_baseline_best.pt
 # python -m src.evaluation.evaluate --modality image --checkpoint_path checkpoints/image_baseline_best.pt
+# python -m src.evaluation.evaluate --modality fusion --checkpoint_path checkpoints/fusion_best.pt --text_checkpoint checkpoints/text_baseline_best.pt --image_checkpoint checkpoints/image_baseline_best.pt
