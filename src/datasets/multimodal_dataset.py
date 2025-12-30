@@ -90,7 +90,9 @@ class CrisisMultimodalDataset(Dataset):
 
         # 3. Label (using label_image as ground truth - consistent with baselines)
         label_str = (
-            row["label_image"] if pd.notna(row["label_image"]) else "not_humanitarian"
+            row["label_text"]
+            if pd.notna(row["label_text"])
+            else row.get("label_image", "not_humanitarian")
         )
         label = self.label_map.get(label_str, 2)
 

@@ -37,7 +37,12 @@ class CrisisTextDataset(Dataset):
             return_tensors="pt",
         )
 
-        label = self.label_map.get(row["label_image"], 2)
+        label_str = (
+            row["label_text"]
+            if pd.notna(row["label_text"])
+            else row.get("label_image", "not_humanitarian")
+        )
+        label = self.label_map.get(label_str, 2)
 
         return {
             "input_ids": inputs["input_ids"].squeeze(0),

@@ -18,9 +18,9 @@ import seaborn as sns
 from torchvision import transforms
 
 # =========================
-# Imports from your project
+# Imports from the project
 # =========================
-# Ensure these match your actual folder structure and class names
+
 from src.datasets.text_dataset import CrisisTextDataset
 from src.datasets.image_dataset import CrisisImageDataset
 from src.models.text_model import DistilBertTextClassifier

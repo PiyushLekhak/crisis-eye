@@ -7,79 +7,109 @@ Image checkpoint: checkpoints/image_baseline_best.pt
 
 
 Epoch 1
-Train loss: 0.3573
-Val macro-f1: 0.5955
+Train loss: 0.2244
+Val macro-f1: 0.7563
               precision    recall  f1-score   support
 
-        High     0.2903    0.2069    0.2416        87
-      Medium     0.6532    0.7569    0.7012       724
-         Low     0.8720    0.8170    0.8436      1426
+        High     0.5805    0.7063    0.6372       143
+      Medium     0.7196    0.8048    0.7598       625
+         Low     0.9054    0.8407    0.8719      1469
 
-    accuracy                         0.7738      2237
-   macro avg     0.6052    0.5936    0.5955      2237
-weighted avg     0.7786    0.7738    0.7741      2237
+    accuracy                         0.8221      2237
+   macro avg     0.7352    0.7839    0.7563      2237
+weighted avg     0.8327    0.8221    0.8256      2237
 
 ==================================================
 
 Epoch 2
-Train loss: 0.2857
-Val macro-f1: 0.6238
+Train loss: 0.1867
+Val macro-f1: 0.7534
               precision    recall  f1-score   support
 
-        High     0.2832    0.3678    0.3200        87
-      Medium     0.6979    0.6892    0.6935       724
-         Low     0.8630    0.8527    0.8578      1426
+        High     0.5951    0.6783    0.6340       143
+      Medium     0.6906    0.8464    0.7606       625
+         Low     0.9190    0.8182    0.8657      1469
 
-    accuracy                         0.7810      2237
-   macro avg     0.6147    0.6366    0.6238      2237
-weighted avg     0.7870    0.7810    0.7838      2237
+    accuracy                         0.8172      2237
+   macro avg     0.7349    0.7810    0.7534      2237
+weighted avg     0.8345    0.8172    0.8215      2237
 
 ==================================================
 
 Epoch 3
-Train loss: 0.2653
-Val macro-f1: 0.6235
+Train loss: 0.1874
+Val macro-f1: 0.7479
               precision    recall  f1-score   support
 
-        High     0.2517    0.4253    0.3162        87
-      Medium     0.6761    0.7238    0.6991       724
-         Low     0.8913    0.8219    0.8552      1426
+        High     0.5248    0.7413    0.6145       143
+      Medium     0.7194    0.8080    0.7611       625
+         Low     0.9122    0.8278    0.8680      1469
 
-    accuracy                         0.7747      2237
-   macro avg     0.6064    0.6570    0.6235      2237
-weighted avg     0.7968    0.7747    0.7837      2237
+    accuracy                         0.8167      2237
+   macro avg     0.7188    0.7923    0.7479      2237
+weighted avg     0.8336    0.8167    0.8219      2237
 
 ==================================================
 
 Epoch 4
-Train loss: 0.2595
-Val macro-f1: 0.6099
+Train loss: 0.1777
+Val macro-f1: 0.7633
               precision    recall  f1-score   support
 
-        High     0.3400    0.1954    0.2482        87
-      Medium     0.6937    0.7445    0.7182       724
-         Low     0.8681    0.8583    0.8632      1426
+        High     0.6098    0.6993    0.6515       143
+      Medium     0.7329    0.7904    0.7606       625
+         Low     0.8999    0.8570    0.8780      1469
 
-    accuracy                         0.7957      2237
-   macro avg     0.6339    0.5994    0.6099      2237
-weighted avg     0.7911    0.7957    0.7923      2237
+    accuracy                         0.8283      2237
+   macro avg     0.7475    0.7822    0.7633      2237
+weighted avg     0.8347    0.8283    0.8307      2237
 
 ==================================================
 
 Epoch 5
-Train loss: 0.2489
-Val macro-f1: 0.6227
+Train loss: 0.1825
+Val macro-f1: 0.7603
               precision    recall  f1-score   support
 
-        High     0.3014    0.2529    0.2750        87
-      Medium     0.7158    0.7307    0.7232       724
-         Low     0.8702    0.8696    0.8699      1426
+        High     0.6209    0.6643    0.6419       143
+      Medium     0.7249    0.7968    0.7591       625
+         Low     0.9026    0.8584    0.8800      1469
 
-    accuracy                         0.8006      2237
-   macro avg     0.6291    0.6177    0.6227      2237
-weighted avg     0.7981    0.8006    0.7993      2237
+    accuracy                         0.8288      2237
+   macro avg     0.7495    0.7732    0.7603      2237
+weighted avg     0.8350    0.8288    0.8310      2237
 
 ==================================================
 
-Training finished. Best Val macro-F1: 0.6238
-Total time (min): 3.58
+Epoch 6
+Train loss: 0.1747
+Val macro-f1: 0.7535
+              precision    recall  f1-score   support
+
+        High     0.5824    0.6923    0.6326       143
+      Medium     0.7107    0.8096    0.7569       625
+         Low     0.9077    0.8373    0.8711      1469
+
+    accuracy                         0.8203      2237
+   macro avg     0.7336    0.7797    0.7535      2237
+weighted avg     0.8319    0.8203    0.8240      2237
+
+==================================================
+
+Epoch 7
+Train loss: 0.1683
+Val macro-f1: 0.7583
+              precision    recall  f1-score   support
+
+        High     0.5771    0.7063    0.6352       143
+      Medium     0.7481    0.7744    0.7610       625
+         Low     0.8954    0.8625    0.8786      1469
+
+    accuracy                         0.8279      2237
+   macro avg     0.7402    0.7811    0.7583      2237
+weighted avg     0.8339    0.8279    0.8302      2237
+
+==================================================
+
+Training finished. Best Val macro-F1: 0.7633
+Total time (min): 5.00
