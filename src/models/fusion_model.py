@@ -70,7 +70,6 @@ class LateFusionModel(nn.Module):
         text_features = txt_out.last_hidden_state[:, 0, :]
 
         # 2. Image Features
-        # ResNet (fc removed) -> Shape: (Batch, 2048)
         image_features = self.image_model.backbone(images)
 
         # 3. Concatenate

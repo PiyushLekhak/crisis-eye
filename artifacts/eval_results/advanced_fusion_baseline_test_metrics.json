@@ -1,0 +1,28 @@
+{
+    "modality": "advanced_fusion",
+    "checkpoint": "checkpoints/advanced_fusion_best.pt",
+    "accuracy": 0.8287885561019223,
+    "macro_precision": 0.7711786336167986,
+    "macro_recall": 0.7505874373414197,
+    "macro_f1": 0.7600917105386698,
+    "per_class": {
+        "High": {
+            "precision": 0.6788321167883211,
+            "recall": 0.6503496503496503,
+            "f1": 0.6642857142857143,
+            "support": 143
+        },
+        "Medium": {
+            "precision": 0.7711267605633803,
+            "recall": 0.7008,
+            "f1": 0.7342833193629505,
+            "support": 625
+        },
+        "Low": {
+            "precision": 0.8635770234986945,
+            "recall": 0.9006126616746086,
+            "f1": 0.8817060979673442,
+            "support": 1469
+        }
+    }
+}

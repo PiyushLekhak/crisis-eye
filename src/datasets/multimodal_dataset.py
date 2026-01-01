@@ -88,7 +88,7 @@ class CrisisMultimodalDataset(Dataset):
             return_tensors="pt",
         )
 
-        # 3. Label (using label_image as ground truth - consistent with baselines)
+        # 3. Label
         label_str = (
             row["label_text"]
             if pd.notna(row["label_text"])

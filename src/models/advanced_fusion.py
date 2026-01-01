@@ -15,7 +15,7 @@ class AdvancedFusionModel(nn.Module):
     ):
         super().__init__()
 
-        # -------- Text Backbone --------
+        # -------- 1. Backbones (Same as before) --------
         self.text_model = DistilBertTextClassifier(num_classes=num_classes)
         if text_checkpoint:
             print(f"Loading Text Backbone from {text_checkpoint}")
@@ -23,8 +23,6 @@ class AdvancedFusionModel(nn.Module):
                 torch.load(text_checkpoint, map_location="cpu")
             )
 
-        # -------- Image Backbone --------
-        # Initialize with freeze_backbone=False so we can manually control it
         self.image_model = ResNetImageClassifier(
             num_classes=num_classes, freeze_backbone=False
         )
@@ -34,109 +32,96 @@ class AdvancedFusionModel(nn.Module):
                 torch.load(image_checkpoint, map_location="cpu")
             )
 
-        # Remove classifier head (we only want features)
         self.image_model.backbone.fc = nn.Identity()
 
-        # -------- 1. FREEZE LOGIC --------
-        # Freeze everything first
+        # -------- 2. Freeze Logic (Same as before) --------
         for p in self.text_model.parameters():
             p.requires_grad = False
         for p in self.image_model.parameters():
             p.requires_grad = False
 
-        # Unfreeze ONLY specific high-level layers
-        # Unfreeze last Transformer Encoder layer
+        # Unfreeze last layers for fine-tuning
         for p in self.text_model.encoder.transformer.layer[-1].parameters():
             p.requires_grad = True
-
-        # Unfreeze Last ResNet Block (Layer 4)
         for p in self.image_model.backbone.layer4.parameters():
             p.requires_grad = True
 
-        # -------- Projection Layers --------
+        # -------- 3. Projection Layers --------
+        # We must project both to the SAME dimension to weigh them against each other
         self.text_projector = nn.Sequential(
             nn.Linear(768, common_dim),
-            nn.LayerNorm(common_dim),
+            nn.BatchNorm1d(common_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
         )
 
         self.image_projector = nn.Sequential(
             nn.Linear(2048, common_dim),
-            nn.LayerNorm(common_dim),
+            nn.BatchNorm1d(common_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
         )
 
-        # -------- Cross-Attention Fusion --------
-        # We treat this as a sequence of length 2: [Text, Image]
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=common_dim,
-            nhead=4,
-            dim_feedforward=1024,
-            dropout=dropout,
-            batch_first=True,
+        # -------- 4. The Gating Mechanism (The "Brain") --------
+        # This layer looks at both inputs and decides the weight 'z'
+        # Input: Text(512) + Image(512) = 1024
+        # Output: 1 scalar value (0 to 1) per sample
+        self.gate_layer = nn.Sequential(
+            nn.Linear(common_dim * 2, common_dim),
+            nn.ReLU(),
+            nn.Linear(common_dim, 1),
+            nn.Sigmoid(),  # Forces output between 0 and 1
         )
-        self.fusion_encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
 
-        # -------- Classifier --------
-        # INPUT DIMENSION CHANGE:
-        # We concatenate (Original Image 2048) + (Fused Image Token 512) + (Fused Text Token 512)
-        # This gives the model a "Safety Valve" to use raw image features if fusion is confusing.
+        # -------- 5. Classifier --------
         self.classifier = nn.Sequential(
-            nn.Linear(2048 + common_dim * 2, 512),
-            nn.BatchNorm1d(512),  # Added BN for stability
+            nn.Linear(common_dim, 256),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(512, num_classes),
+            nn.Linear(256, num_classes),
         )
 
     def forward(self, input_ids, attention_mask, images):
-        # 1. Extract Raw Features
+        # 1. Get Raw Features
         txt_out = self.text_model.encoder(
             input_ids=input_ids, attention_mask=attention_mask
         )
         txt_emb = txt_out.last_hidden_state[:, 0, :]  # [B, 768]
 
-        img_raw = self.image_model.backbone(
-            images
-        )  # [B, 2048] (This is the strong baseline feature)
+        img_raw = self.image_model.backbone(images)  # [B, 2048]
 
-        # 2. Project to Common Space
+        # 2. Project to Common Dimension
         txt_proj = self.text_projector(txt_emb)  # [B, 512]
         img_proj = self.image_projector(img_raw)  # [B, 512]
 
-        # 3. Cross Attention Fusion
-        # Stack as sequence: [Text_Token, Image_Token]
-        fusion_input = torch.stack([txt_proj, img_proj], dim=1)  # [B, 2, 512]
-        fusion_out = self.fusion_encoder(fusion_input)  # [B, 2, 512]
+        # 3. Calculate the Gate 'z'
+        # We concatenate them to let the gate compare them
+        concat_features = torch.cat([txt_proj, img_proj], dim=1)  # [B, 1024]
+        z = self.gate_layer(concat_features)  # [B, 1]
 
-        # 4. Flatten Fusion Output
-        # shape becomes [B, 1024] (Text_Fused + Image_Fused)
-        fusion_flat = fusion_out.reshape(fusion_out.size(0), -1)
+        # Stabilize the Gate early in training
+        z = torch.clamp(z, 0.1, 0.9)
 
-        # 5. RESIDUAL CONNECTION (The "Secret Sauce")
-        # Concatenate: [Raw_Image_Features (2048), Fused_Features (1024)]
-        # This guarantees the model has access to the pure image signal
-        # even if the text/fusion is noisy.
-        combined = torch.cat([img_raw, fusion_flat], dim=1)
+        # 4. Apply Weighted Fusion
+        # If z is close to 1, we trust Text. If z is close to 0, we trust Image.
+        # This allows the model to choose per-sample.
+        fused_features = (z * txt_proj) + ((1 - z) * img_proj)  # [B, 512]
 
-        return self.classifier(combined)
+        # 5. Classify
+        logits = self.classifier(fused_features)
+
+        return logits
 
     def train(self, mode=True):
-        """
-        Custom train method to safe-guard Batch Normalization.
-        We MUST keep the frozen parts of ResNet in eval mode to preserve
-        ImageNet statistics, otherwise small batches (BS=16) destroy the features.
-        """
         super().train(mode)
 
-        # Force Backbones to EVAL mode (Freezes BN stats and Dropout)
-        # We only want to train the weights of Layer4, but keep BN stats frozen.
+        # Freeze frozen parts
         self.image_model.backbone.eval()
         self.text_model.encoder.eval()
 
-        # Note: If you want Dropout active in backbones, you can granularly set it,
-        # but for small-batch fine-tuning, full eval on backbones is safer.
+        # Re-enable training for unfrozen layers
+        self.text_model.encoder.transformer.layer[-1].train()
+        self.image_model.backbone.layer4.train()
 
         return self
