@@ -204,7 +204,7 @@ def main(args):
     patience_counter = 0
 
     with open(REPORT_PATH, "w") as f:
-        f.write("Advanced Fusion Model Training Report (Cross-Attention)\n")
+        f.write("Advanced Fusion Model Training Report\n")
         f.write(f"Config: LR={LR}, BATCH={BATCH_SIZE}, WD={WEIGHT_DECAY}\n")
         f.write(f"Trainable: {trainable_params:,}\n\n")
 

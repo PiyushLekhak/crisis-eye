@@ -47,30 +47,27 @@ class AdvancedFusionModel(nn.Module):
             p.requires_grad = True
 
         # -------- 3. Projection Layers --------
-        # We must project both to the SAME dimension to weigh them against each other
+        # CHANGE: BatchNorm1d → LayerNorm for stability with small batches
         self.text_projector = nn.Sequential(
             nn.Linear(768, common_dim),
-            nn.BatchNorm1d(common_dim),
+            nn.LayerNorm(common_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
         )
 
         self.image_projector = nn.Sequential(
             nn.Linear(2048, common_dim),
-            nn.BatchNorm1d(common_dim),
+            nn.LayerNorm(common_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
         )
 
         # -------- 4. The Gating Mechanism (The "Brain") --------
-        # This layer looks at both inputs and decides the weight 'z'
-        # Input: Text(512) + Image(512) = 1024
-        # Output: 1 scalar value (0 to 1) per sample
         self.gate_layer = nn.Sequential(
             nn.Linear(common_dim * 2, common_dim),
             nn.ReLU(),
             nn.Linear(common_dim, 1),
-            nn.Sigmoid(),  # Forces output between 0 and 1
+            nn.Sigmoid(),
         )
 
         # -------- 5. Classifier --------
@@ -81,6 +78,14 @@ class AdvancedFusionModel(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(256, num_classes),
         )
+
+        # NEW: Auxiliary classifiers for unimodal losses
+        self.text_aux_classifier = nn.Linear(common_dim, num_classes)
+        self.image_aux_classifier = nn.Linear(common_dim, num_classes)
+
+        # Store auxiliary outputs for loss computation
+        self.text_logits = None
+        self.image_logits = None
 
     def forward(self, input_ids, attention_mask, images):
         # 1. Get Raw Features
@@ -96,22 +101,88 @@ class AdvancedFusionModel(nn.Module):
         img_proj = self.image_projector(img_raw)  # [B, 512]
 
         # 3. Calculate the Gate 'z'
-        # We concatenate them to let the gate compare them
         concat_features = torch.cat([txt_proj, img_proj], dim=1)  # [B, 1024]
         z = self.gate_layer(concat_features)  # [B, 1]
 
-        # Stabilize the Gate early in training
-        z = torch.clamp(z, 0.1, 0.9)
+        # CHANGE: Affine transform instead of clamp to preserve gradients
+        z = 0.8 * z + 0.1
 
         # 4. Apply Weighted Fusion
-        # If z is close to 1, we trust Text. If z is close to 0, we trust Image.
-        # This allows the model to choose per-sample.
         fused_features = (z * txt_proj) + ((1 - z) * img_proj)  # [B, 512]
 
         # 5. Classify
         logits = self.classifier(fused_features)
 
+        # NEW: Store auxiliary logits for loss computation (only during training)
+        if self.training:
+            self.text_logits = self.text_aux_classifier(txt_proj)
+            self.image_logits = self.image_aux_classifier(img_proj)
+
         return logits
+
+    def compute_loss(self, logits, labels, criterion):
+        """
+        Computes total loss including auxiliary unimodal losses.
+        This method is called automatically if model is in training mode.
+
+        Args:
+            logits: Main fusion output
+            labels: Ground truth labels
+            criterion: Loss function (e.g., CrossEntropyLoss)
+
+        Returns:
+            Total loss with auxiliary losses (α = 0.1)
+        """
+        loss_fusion = criterion(logits, labels)
+
+        if (
+            self.training
+            and self.text_logits is not None
+            and self.image_logits is not None
+        ):
+            loss_text = criterion(self.text_logits, labels)
+            loss_image = criterion(self.image_logits, labels)
+
+            # Combined loss with auxiliary losses (α = 0.1)
+            total_loss = loss_fusion + 0.1 * loss_text + 0.1 * loss_image
+
+            # Clear cached logits
+            self.text_logits = None
+            self.image_logits = None
+
+            return total_loss
+
+        return loss_fusion
+
+    def get_optimizer_params(self, base_lr=2e-5):
+        """
+        Returns parameter groups with different learning rates.
+
+        Args:
+            base_lr: Base learning rate (used for smallest components)
+
+        Returns:
+            List of parameter groups for optimizer
+        """
+        return [
+            {
+                "params": list(self.text_projector.parameters())
+                + list(self.image_projector.parameters())
+                + list(self.gate_layer.parameters())
+                + list(self.classifier.parameters())
+                + list(self.text_aux_classifier.parameters())
+                + list(self.image_aux_classifier.parameters()),
+                "lr": base_lr * 25,  # 5e-4 if base_lr = 2e-5
+            },
+            {
+                "params": self.image_model.backbone.layer4.parameters(),
+                "lr": base_lr * 5,  # 1e-4 if base_lr = 2e-5
+            },
+            {
+                "params": self.text_model.encoder.transformer.layer[-1].parameters(),
+                "lr": base_lr,  # 2e-5
+            },
+        ]
 
     def train(self, mode=True):
         super().train(mode)
