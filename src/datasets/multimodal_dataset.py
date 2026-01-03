@@ -4,7 +4,7 @@ import pandas as pd
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
-from transformers import DistilBertTokenizer
+from transformers import AutoTokenizer
 
 
 class CrisisMultimodalDataset(Dataset):
@@ -22,7 +22,7 @@ class CrisisMultimodalDataset(Dataset):
         self.split = split
 
         # Load Tokenizer (DistilBERT - matches text baseline exactly)
-        self.tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+        self.tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
 
         # --- IMAGE TRANSFORMS ---
         # ImageNet Mean/Std (same as image baseline)
@@ -44,8 +44,8 @@ class CrisisMultimodalDataset(Dataset):
             # Image baseline uses: Resize(256) → CenterCrop(224)
             self.transforms = transforms.Compose(
                 [
-                    transforms.Resize(256),  # ← Changed: single int, not tuple
-                    transforms.CenterCrop(224),  # ← Added: center crop
+                    transforms.Resize(256),  # Changed: single int, not tuple
+                    transforms.CenterCrop(224),
                     transforms.ToTensor(),
                     transforms.Normalize(mean, std),
                 ]

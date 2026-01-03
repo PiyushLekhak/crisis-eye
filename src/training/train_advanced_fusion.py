@@ -1,14 +1,3 @@
-"""
-Advanced Fusion training script for Crisis-Eye.
-Architecture: Cross-Attention Fusion (Transformer)
-Training Strategy:
-- Partial Unfreezing: Trains Fusion Head + Last Layer of Text + Last Block of Image
-- Lower Learning Rate: To prevent destroying pretrained backbone weights
-- Weight Decay: Increased to prevent overfitting on unfrozen layers
-- Mixed Precision (AMP): For memory efficiency
-"""
-
-import os
 import time
 import random
 import numpy as np
@@ -24,9 +13,9 @@ from torch import amp
 
 from sklearn.metrics import classification_report, f1_score
 
-# --- IMPORTS ---
+
 from src.datasets.multimodal_dataset import CrisisMultimodalDataset
-from src.models.advanced_fusion import AdvancedFusionModel  # <--- NEW MODEL
+from src.models.advanced_fusion import AdvancedFusionModel
 
 # -------------------- CONFIG --------------------
 SEED = 42
@@ -37,8 +26,8 @@ DEVICE = "cuda" if USE_CUDA else "cpu"
 BATCH_SIZE = 16
 MAX_EPOCHS = 10
 PATIENCE = 5  # Increased slightly as unfrozen models need time to settle
-LR = 2e-5  # <--- LOWER LR (Critical for unfrozen backbones)
-WEIGHT_DECAY = 1e-2  # <--- HIGHER DECAY (Standard for Transformers to stop overfitting)
+LR = 2e-5  # LOWER LR (Critical for unfrozen backbones)
+WEIGHT_DECAY = 1e-2
 GRAD_CLIP = 1.0
 NUM_CLASSES = 3
 

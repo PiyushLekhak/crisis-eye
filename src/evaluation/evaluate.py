@@ -17,9 +17,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from torchvision import transforms
 
-# =========================
+# -------------------------
 # Imports from the project
-# =========================
+# -------------------------
 
 from src.datasets.text_dataset import CrisisTextDataset
 from src.datasets.image_dataset import CrisisImageDataset
@@ -70,7 +70,7 @@ def get_test_transforms():
     """
     FAIRNESS CHECK:
     Must be identical to Validation transforms: Resize(256) -> CenterCrop(224).
-    Do NOT use RandomCrop or Flip here.
+    NO RandomCrop or Flip here.
     """
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
@@ -139,9 +139,9 @@ def main(args):
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # =====================
+    # -------------------------
     # Dataset & Model setup
-    # =====================
+    # -------------------------
     if args.modality == "text":
         # Load tokenizer (must match model)
         tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
@@ -188,8 +188,8 @@ def main(args):
 
         model = LateFusionModel(
             num_classes=args.num_classes,
-            text_checkpoint=args.text_checkpoint,  # Correct text checkpoint
-            image_checkpoint=args.image_checkpoint,  # Correct image checkpoint
+            text_checkpoint=args.text_checkpoint,
+            image_checkpoint=args.image_checkpoint,
             freeze_backbones=True,
         )
 
@@ -217,22 +217,22 @@ def main(args):
     else:
         raise ValueError("Modality must be one of: text | image | fusion")
 
-    # =====================
+    # -------------------------
     # Load checkpoint
-    # =====================
+    # -------------------------
     print(f"Loading weights from: {args.checkpoint_path}")
     checkpoint = torch.load(args.checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint)
     model.to(device)
 
-    # =====================
+    # -------------------------
     # Evaluation
-    # =====================
+    # -------------------------
     preds, labels = evaluate_model(model, test_loader, device, args.modality)
 
-    # =====================
+    # -------------------------
     # Metrics
-    # =====================
+    # -------------------------
     accuracy = accuracy_score(labels, preds)
 
     precision, recall, f1, support = precision_recall_fscore_support(
@@ -273,12 +273,11 @@ def main(args):
         },
     }
 
-    # =====================
+    # -------------------------
     # Save outputs
-    # =====================
+    # -------------------------
     # 1. Metrics JSON
-    suffix = "fusion" if args.modality == "fusion" else "baseline"
-    metrics_path = output_dir / f"{args.modality}_{suffix}_test_metrics.json"
+    metrics_path = output_dir / f"{args.modality}_test_metrics.json"
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=4)
 
@@ -286,12 +285,12 @@ def main(args):
     df = pd.DataFrame({"true_label": labels, "pred_label": preds})
     df["label_name_true"] = df["true_label"].map({0: "High", 1: "Medium", 2: "Low"})
     df["label_name_pred"] = df["pred_label"].map({0: "High", 1: "Medium", 2: "Low"})
-    df_path = output_dir / f"{args.modality}_{suffix}_test_predictions.csv"
+    df_path = output_dir / f"{args.modality}_test_predictions.csv"
     df.to_csv(df_path, index=False)
 
     # 3. Confusion matrix
     cm = confusion_matrix(labels, preds)
-    cm_path = output_dir / f"{args.modality}_{suffix}_test_confusion_matrix.png"
+    cm_path = output_dir / f"{args.modality}_test_confusion_matrix.png"
     save_confusion_matrix(cm, class_names, cm_path)
 
 
@@ -310,7 +309,6 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_path", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="artifacts/eval_results")
 
-    # Add the following arguments for fusion mode
     parser.add_argument(
         "--text_checkpoint",
         type=str,

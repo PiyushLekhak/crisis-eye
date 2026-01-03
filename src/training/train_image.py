@@ -1,19 +1,3 @@
-"""
-Image baseline training script (ResNet50) for Crisis-Eye.
-Follows best-practice baseline rules:
-- Reproducible seeds
-- Class-weighted CrossEntropy for imbalance
-- AdamW + weight decay
-- ReduceLROnPlateau scheduler (monitors val macro-F1)
-- Early stopping (patience=5, higher than text due to CNN learning curves)
-- Gradient clipping
-- Mixed precision (AMP) for speed / memory
-- Standard ImageNet augmentation (RandomCrop, HorizontalFlip)
-- Frozen backbone (only train classification head)
-- ONLY saves the BEST model
-"""
-
-import os
 import time
 import random
 import json

@@ -1,23 +1,5 @@
-"""
-Late Fusion training script for Crisis-Eye.
-Combines pretrained Text (DistilBERT) and Image (ResNet50) models.
-Training Strategy:
-- Freeze unimodal backbones (Text + Image encoders)
-- Train only the fusion head (MLP classifier)
-- Use pretrained baseline checkpoints as initialization
-- Class-weighted CrossEntropy for imbalance
-- AdamW + weight decay
-- ReduceLROnPlateau scheduler (monitors val macro-F1)
-- Early stopping (patience=3)
-- Gradient clipping
-- Mixed precision (AMP)
-- ONLY saves the BEST model
-"""
-
-import os
 import time
 import random
-import json
 import numpy as np
 from pathlib import Path
 import argparse

@@ -1,18 +1,3 @@
-"""
-Text baseline training script (DistilBERT) for Crisis-Eye.
-Follows best-practice baseline rules:
-- Reproducible seeds
-- Class-weighted CrossEntropy for imbalance
-- AdamW + weight decay
-- ReduceLROnPlateau scheduler (monitors val macro-F1)
-- Early stopping (patience)
-- Gradient clipping
-- Mixed precision (AMP) for speed / memory
-- DataLoader perf: num_workers, pin_memory
-- ONLY saves the BEST model (no last-epoch checkpoint spam)
-"""
-
-import os
 import time
 import random
 import json
@@ -64,7 +49,6 @@ NUM_WORKERS = 6
 PIN_MEMORY = True if DEVICE == "cuda" else False
 
 # AMP scaler (mixed precision)
-# Mixed precision speeds up training and reduces memory consumption on modern GPUs.
 scaler = amp.GradScaler(enabled=USE_CUDA)
 # ---------------------------------------------------
 

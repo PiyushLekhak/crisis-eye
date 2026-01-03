@@ -18,7 +18,7 @@ class CrisisImageDataset(Dataset):
         self.img_dir = img_dir
         self.transform = transform
 
-        # Same mapping as your text dataset
+        # Mapping detailed labels to broader categories
         self.label_map = {
             "injured_or_dead_people": 0,
             "missing_or_found_people": 0,
