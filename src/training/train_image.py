@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch import amp
@@ -173,13 +173,27 @@ def main():
     train_dataset = CrisisImageDataset(TRAIN_PATH, IMG_DIR, transform=train_transform)
     val_dataset = CrisisImageDataset(VAL_PATH, IMG_DIR, transform=val_transform)
 
+    # ----------------- WeightedRandomSampler setup -----------------
+    class_weights = compute_class_weights(train_dataset).to(DEVICE)
+    print("Class weights:", class_weights.tolist())
+
+    labels = [int(train_dataset[i]["label"]) for i in range(len(train_dataset))]
+    sample_weights = torch.tensor(
+        [class_weights.cpu()[int(l)].item() for l in labels], dtype=torch.double
+    )
+    sampler = WeightedRandomSampler(
+        weights=sample_weights, num_samples=len(sample_weights), replacement=True
+    )
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
-        shuffle=True,
+        sampler=sampler,
+        shuffle=False,
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY,
     )
+
     val_loader = DataLoader(
         val_dataset,
         batch_size=BATCH_SIZE,
@@ -187,10 +201,7 @@ def main():
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY,
     )
-
-    # Class weights and criterion
-    class_weights = compute_class_weights(train_dataset).to(DEVICE)
-    print("Class weights:", class_weights.tolist())
+    # ---------------------------------------------------------------
 
     # Model with frozen backbone (baseline standard)
     model = ResNetImageClassifier(NUM_CLASSES, freeze_backbone=True).to(DEVICE)
@@ -200,7 +211,8 @@ def main():
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Trainable parameters: {trainable_params:,} / {total_params:,}")
 
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    # Criterion: use plain CrossEntropy when using sampler
+    criterion = nn.CrossEntropyLoss()
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=LR,

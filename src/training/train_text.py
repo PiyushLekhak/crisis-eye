@@ -6,12 +6,12 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch import amp
 import subprocess
-from transformers import DistilBertTokenizer
+from transformers import AutoTokenizer
 
 
 from sklearn.metrics import classification_report, f1_score
@@ -137,13 +137,28 @@ def main():
     train_dataset = CrisisTextDataset(TRAIN_PATH, max_len=MAX_LEN)
     val_dataset = CrisisTextDataset(VAL_PATH, max_len=MAX_LEN)
 
+    # ----------------- WeightedRandomSampler setup -----------------
+    # Compute class weights (kept for reporting; not used in loss)
+    class_weights = compute_class_weights(train_dataset).to(DEVICE)
+    print("Class weights:", class_weights.tolist())
+
+    labels = [int(train_dataset[i]["label"]) for i in range(len(train_dataset))]
+    sample_weights = torch.tensor(
+        [class_weights.cpu()[int(l)].item() for l in labels], dtype=torch.double
+    )
+    sampler = WeightedRandomSampler(
+        weights=sample_weights, num_samples=len(sample_weights), replacement=True
+    )
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
-        shuffle=True,
+        sampler=sampler,
+        shuffle=False,
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY,
     )
+
     val_loader = DataLoader(
         val_dataset,
         batch_size=BATCH_SIZE,
@@ -151,15 +166,22 @@ def main():
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY,
     )
-
-    # class weights and criterion
-    class_weights = compute_class_weights(train_dataset).to(DEVICE)
-    print("Class weights:", class_weights.tolist())
+    # ---------------------------------------------------------------
 
     model = DistilBertTextClassifier(NUM_CLASSES).to(DEVICE)
 
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
-    optimizer = AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+    # Count trainable parameters
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Trainable parameters: {trainable_params:,} / {total_params:,}")
+
+    # Criterion: use plain CrossEntropy when using sampler
+    criterion = nn.CrossEntropyLoss()
+    optimizer = AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=LR,
+        weight_decay=WEIGHT_DECAY,
+    )
     scheduler = ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=2)
 
     best_f1 = 0.0
@@ -236,14 +258,13 @@ def save_artifacts(best_f1):
     """
     Save tokenizer, label mapping, and frozen run configuration
     for the DistilBERT text baseline.
-    Called automatically if training is run again.
     """
 
     artifacts_dir = Path("artifacts/text_baseline")
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     # ---- Tokenizer ----
-    tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+    tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
     tokenizer.save_pretrained(artifacts_dir / "tokenizer")
 
     # ---- Label mapping ----

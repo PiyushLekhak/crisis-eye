@@ -1,0 +1,28 @@
+{
+    "modality": "text",
+    "checkpoint": "checkpoints/text_baseline_best.pt",
+    "accuracy": 0.8126955744300403,
+    "macro_precision": 0.740203801733124,
+    "macro_recall": 0.7815792561420881,
+    "macro_f1": 0.7578958022764243,
+    "per_class": {
+        "High": {
+            "precision": 0.6296296296296297,
+            "recall": 0.7132867132867133,
+            "f1": 0.6688524590163935,
+            "support": 143
+        },
+        "Medium": {
+            "precision": 0.6885245901639344,
+            "recall": 0.8064,
+            "f1": 0.7428150331613854,
+            "support": 625
+        },
+        "Low": {
+            "precision": 0.9024571854058079,
+            "recall": 0.8250510551395507,
+            "f1": 0.8620199146514936,
+            "support": 1469
+        }
+    }
+}

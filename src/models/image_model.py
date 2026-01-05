@@ -23,22 +23,34 @@ class ResNetImageClassifier(nn.Module):
             for param in self.backbone.parameters():
                 param.requires_grad = False
 
-            # Explicitly unfreeze classifier head (clarity)
+            # Unfreeze last residual stage (layer4) and the classifier head
+            for param in self.backbone.layer4.parameters():
+                param.requires_grad = True
+
             for param in self.backbone.fc.parameters():
                 param.requires_grad = True
 
-            # Keep backbone in eval mode to freeze BN/Dropout statistics
-            self.backbone.eval()
+            # Do NOT call backbone.eval() here globally — control eval/train state in .train()
+            # This ensures layer4's BatchNorm layers can be set to train() when desired.
 
     def forward(self, pixel_values):
         return self.backbone(pixel_values)
 
     def train(self, mode: bool = True):
         """
-        Override .train() to ensure backbone stays in eval mode if frozen.
-        This prevents BatchNorm/Dropout layers from updating statistics.
+        Override .train() to:
+        - keep frozen backbone layers in eval() so their BatchNorm stats don't update
+        - allow layer4 and fc to be set to train(mode) so they can learn when training
         """
         super().train(mode)
         if self.freeze_backbone:
+            # Put entire backbone in eval to freeze BatchNorm / Dropout behavior for frozen parts
             self.backbone.eval()
+
+            # Explicitly set layer4 to train mode if overall mode is True (so its BN updates)
+            # and set fc to train mode as well.
+            for m in self.backbone.layer4.modules():
+                m.train(mode)
+            for m in self.backbone.fc.modules():
+                m.train(mode)
         return self

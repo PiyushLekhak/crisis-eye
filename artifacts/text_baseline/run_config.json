@@ -9,9 +9,9 @@
   "patience": 3,
   "grad_clip": 1.0,
   "seed": 42,
-  "best_val_macro_f1": 0.7585115068513967,
+  "best_val_macro_f1": 0.7580792835341285,
   "checkpoint_path": "checkpoints/text_baseline_best.pt",
   "train_data": "data/crisismmd_datasplit_all/task_humanitarian_text_img_train.tsv",
   "val_data": "data/crisismmd_datasplit_all/task_humanitarian_text_img_dev.tsv",
-  "git_commit": "3dafd7c38d2b4e19e1ed36b8d0037e22e67ac27b"
+  "git_commit": "1933a6a10a70d6855d24e0a6373601f8ef0a5c11"
 }
