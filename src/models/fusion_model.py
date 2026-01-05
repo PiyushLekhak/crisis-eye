@@ -5,77 +5,235 @@ from src.models.image_model import ResNetImageClassifier
 
 
 class LateFusionModel(nn.Module):
+    """
+    Advanced late-fusion that:
+      - projects text (768) and image (2048) to a common_dim
+      - uses a learned gating scalar per sample to weight modalities
+      - includes auxiliary unimodal classifiers and auxiliary losses
+      - exposes get_optimizer_params() for differential LRs
+      - respects the internal fair-freezing implemented in the backbone classes
+    """
+
     def __init__(
         self,
         num_classes=3,
         text_checkpoint=None,
         image_checkpoint=None,
-        freeze_backbones=False,  # Change default to False
+        common_dim=512,
+        dropout=0.3,
     ):
-        super(LateFusionModel, self).__init__()
+        super().__init__()
 
-        # --- Text Branch (DistilBERT) ---
+        # -------- 1. Backbones (respect their internal freeze policy) --------
+        # DistilBertTextClassifier: already freezes all but last transformer layer + head
         self.text_model = DistilBertTextClassifier(num_classes=num_classes)
         if text_checkpoint:
-            print(f"Loading Text weights from {text_checkpoint}")
+            print(f"Loading Text Backbone from {text_checkpoint}")
             self.text_model.load_state_dict(
                 torch.load(text_checkpoint, map_location="cpu")
             )
 
-        # --- Image Branch (ResNet) ---
+        # ResNetImageClassifier: pass freeze_backbone=True so its constructor
+        # applies the fair-freezing policy (layer4 + fc trainable).
         self.image_model = ResNetImageClassifier(
-            num_classes=num_classes, freeze_backbone=freeze_backbones
-        )  # Pass freeze_backbones to ResNet
+            num_classes=num_classes, freeze_backbone=True
+        )
         if image_checkpoint:
-            print(f"Loading Image weights from {image_checkpoint}")
+            print(f"Loading Image Backbone from {image_checkpoint}")
             self.image_model.load_state_dict(
                 torch.load(image_checkpoint, map_location="cpu")
             )
 
-        # Remove the final classification layer from ResNet to get features (2048 dim)
+        # Replace ResNet fc with identity to obtain 2048-d features
         self.image_model.backbone.fc = nn.Identity()
 
-        # --- Freeze Pretrained Backbones (CRITICAL for baseline fusion) ---
-        if freeze_backbones:
-            print("Freezing Text and Image backbones...")
-            for param in self.text_model.encoder.parameters():
-                param.requires_grad = False
-
-            for param in self.image_model.backbone.parameters():
-                param.requires_grad = False
-
-            # Verify trainable params
-            trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
-            total = sum(p.numel() for p in self.parameters())
-            print(f"Trainable params: {trainable:,} / {total:,}")
-
-        # --- Fusion Head ---
-        # Text [CLS] (768) + Image (2048) = 2816 features
-        self.fusion_dim = 768 + 2048
-
-        # Replacing BatchNorm with a simpler approach
-        self.classifier = nn.Sequential(
-            nn.Linear(self.fusion_dim, 512),
+        # -------- 2. Projection layers to common_dim (LayerNorm for stability) --------
+        self.common_dim = common_dim
+        self.text_projector = nn.Sequential(
+            nn.Linear(768, common_dim),
+            nn.LayerNorm(common_dim),
             nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, num_classes),
+            nn.Dropout(dropout),
         )
 
+        self.image_projector = nn.Sequential(
+            nn.Linear(2048, common_dim),
+            nn.LayerNorm(common_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+        )
+
+        # -------- 3. Gating mechanism (learned scalar per sample) --------
+        # Input: concat(txt_proj, img_proj) -> scalar in (0,1)
+        self.gate_layer = nn.Sequential(
+            nn.Linear(common_dim * 2, common_dim),
+            nn.ReLU(),
+            nn.Linear(common_dim, 1),
+            nn.Sigmoid(),
+        )
+
+        # Affine shift/clipping to avoid z near 0/1 if desired
+        # We'll apply a small affine after sigmoid in forward: z = 0.8*z + 0.1
+
+        # -------- 4. Classifier (use LayerNorm for stability) --------
+        self.classifier = nn.Sequential(
+            nn.Linear(common_dim, 256),
+            nn.LayerNorm(256),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(256, num_classes),
+        )
+
+        # -------- 5. Auxiliary unimodal classifiers --------
+        self.text_aux_classifier = nn.Linear(common_dim, num_classes)
+        self.image_aux_classifier = nn.Linear(common_dim, num_classes)
+
+        # storage for aux logits during training
+        self._text_logits = None
+        self._image_logits = None
+
     def forward(self, input_ids, attention_mask, images):
-        # 1. Text Features
-        # Pass through DistilBERT backbone
+        # 1) Get raw features from backbones
         txt_out = self.text_model.encoder(
             input_ids=input_ids, attention_mask=attention_mask
         )
-        text_features = txt_out.last_hidden_state[:, 0, :]
+        txt_emb = txt_out.last_hidden_state[:, 0, :]  # [B, 768]
 
-        # 2. Image Features
-        image_features = self.image_model.backbone(images)
+        img_raw = self.image_model.backbone(images)  # [B, 2048]
 
-        # 3. Concatenate
-        combined_features = torch.cat((text_features, image_features), dim=1)
+        # 2) Project both to common_dim
+        txt_proj = self.text_projector(txt_emb)  # [B, common_dim]
+        img_proj = self.image_projector(img_raw)  # [B, common_dim]
 
-        # 4. Classify
-        logits = self.classifier(combined_features)
+        # 3) Gate
+        concat_feats = torch.cat([txt_proj, img_proj], dim=1)  # [B, 2*common_dim]
+        z = self.gate_layer(concat_feats)  # [B,1]
+        # small affine to avoid exact 0/1 (helps gradients/stability)
+        z = 0.8 * z + 0.1  # now in [0.1,0.9]
+
+        # 4) Weighted fusion
+        fused = (z * txt_proj) + ((1.0 - z) * img_proj)  # [B, common_dim]
+
+        # 5) Classify
+        logits = self.classifier(fused)
+
+        # Store auxiliary logits during training for compute_loss
+        if self.training:
+            self._text_logits = self.text_aux_classifier(txt_proj)
+            self._image_logits = self.image_aux_classifier(img_proj)
 
         return logits
+
+    def compute_loss(self, logits, labels, criterion, aux_alpha=0.1):
+        """
+        Compute total loss (fusion + auxiliary unimodal losses).
+        aux_alpha: weight for each auxiliary loss (text and image).
+        """
+        loss_fusion = criterion(logits, labels)
+
+        if (
+            self.training
+            and (self._text_logits is not None)
+            and (self._image_logits is not None)
+        ):
+            loss_text = criterion(self._text_logits, labels)
+            loss_image = criterion(self._image_logits, labels)
+
+            total = loss_fusion + aux_alpha * loss_text + aux_alpha * loss_image
+
+            # clear stored aux logits
+            self._text_logits = None
+            self._image_logits = None
+
+            return total
+
+        return loss_fusion
+
+    def get_optimizer_params(self, base_lr=2e-5):
+        """
+        Return parameter groups for optimizer with differential LRs:
+          - fusion parts (projectors, gate, classifier, aux heads): high LR
+          - image layer4 params: medium LR
+          - text last layer params: low LR
+        This function assumes the backbones expose:
+          - self.image_model.backbone.layer4
+          - self.text_model.encoder.transformer.layer[-1] (or equivalent)
+        """
+        # collect fusion params
+        fusion_params = (
+            list(self.text_projector.parameters())
+            + list(self.image_projector.parameters())
+            + list(self.gate_layer.parameters())
+            + list(self.classifier.parameters())
+            + list(self.text_aux_classifier.parameters())
+            + list(self.image_aux_classifier.parameters())
+        )
+
+        # text last-layer params (try few attribute layouts)
+        text_last = None
+        if hasattr(self.text_model.encoder, "transformer") and hasattr(
+            self.text_model.encoder.transformer, "layer"
+        ):
+            text_last = self.text_model.encoder.transformer.layer[-1].parameters()
+        elif hasattr(self.text_model.encoder, "distilbert") and hasattr(
+            self.text_model.encoder.distilbert, "transformer"
+        ):
+            text_last = self.text_model.encoder.distilbert.transformer.layer[
+                -1
+            ].parameters()
+        else:
+            text_last = []
+
+        # image last block
+        image_last = (
+            self.image_model.backbone.layer4.parameters()
+            if hasattr(self.image_model.backbone, "layer4")
+            else []
+        )
+
+        return [
+            {"params": fusion_params, "lr": base_lr * 25},
+            {"params": image_last, "lr": base_lr * 5},
+            {"params": text_last, "lr": base_lr},
+        ]
+
+    def train(self, mode: bool = True):
+        """
+        Ensure frozen parts remain in eval() (so BN stats don't update),
+        while last encoder blocks remain trainable and in train() mode.
+        """
+        super().train(mode)
+
+        # Put backbone base parts in eval (this leaves their requires_grad as set by backbone constructors)
+        # Then explicitly set last blocks to train mode so their BN layers update.
+        try:
+            # image: set whole backbone eval, then layer4 to train
+            self.image_model.backbone.eval()
+            if hasattr(self.image_model.backbone, "layer4"):
+                for m in self.image_model.backbone.layer4.modules():
+                    m.train(mode)
+            # text: encoder typically uses LayerNorm (stateless) but we still set encoder eval to be safe
+            if hasattr(self.text_model, "encoder"):
+                try:
+                    self.text_model.encoder.eval()
+                    # set last transformer layer to train (if present)
+                    if hasattr(self.text_model.encoder, "transformer") and hasattr(
+                        self.text_model.encoder.transformer, "layer"
+                    ):
+                        for m in self.text_model.encoder.transformer.layer[
+                            -1
+                        ].modules():
+                            m.train(mode)
+                    elif hasattr(self.text_model.encoder, "distilbert") and hasattr(
+                        self.text_model.encoder.distilbert, "transformer"
+                    ):
+                        for m in self.text_model.encoder.distilbert.transformer.layer[
+                            -1
+                        ].modules():
+                            m.train(mode)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        return self

@@ -28,7 +28,6 @@ from src.models.image_model import ResNetImageClassifier
 from transformers import AutoTokenizer
 from src.datasets.multimodal_dataset import CrisisMultimodalDataset
 from src.models.fusion_model import LateFusionModel
-from src.models.advanced_fusion import AdvancedFusionModel
 
 # -------------------------
 # CONSTANTS
@@ -106,7 +105,7 @@ def evaluate_model(model, dataloader, device, modality):
             pixel_values = batch["pixel_values"].to(device)
             outputs = model(pixel_values)
 
-        elif modality in ("fusion", "advanced_fusion"):
+        elif modality == "fusion":
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             images = batch["image"].to(device)
@@ -190,28 +189,6 @@ def main(args):
             num_classes=args.num_classes,
             text_checkpoint=args.text_checkpoint,
             image_checkpoint=args.image_checkpoint,
-            freeze_backbones=True,
-        )
-
-    elif args.modality == "advanced_fusion":
-        # Use the same dataloader (multimodal); model architecture differs
-        test_dataset = CrisisMultimodalDataset(
-            tsv_file=TEST_DATA_PATH,
-            img_dir=IMG_DIR,
-            max_len=args.max_len,
-            split="test",
-        )
-
-        test_loader = torch.utils.data.DataLoader(
-            test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4
-        )
-
-        model = AdvancedFusionModel(
-            num_classes=args.num_classes,
-            text_checkpoint=args.text_checkpoint,
-            image_checkpoint=args.image_checkpoint,
-            common_dim=512,  # matches training default; harmless if different
-            dropout=0.3,  # matches training default
         )
 
     else:
@@ -304,7 +281,7 @@ if __name__ == "__main__":
         "--modality",
         type=str,
         required=True,
-        choices=["text", "image", "fusion", "advanced_fusion"],
+        choices=["text", "image", "fusion"],
     )
     parser.add_argument("--checkpoint_path", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="artifacts/eval_results")
@@ -336,4 +313,3 @@ if __name__ == "__main__":
 # python -m src.evaluation.evaluate --modality text --checkpoint_path checkpoints/text_baseline_best.pt
 # python -m src.evaluation.evaluate --modality image --checkpoint_path checkpoints/image_baseline_best.pt
 # python -m src.evaluation.evaluate --modality fusion --checkpoint_path checkpoints/fusion_best.pt --text_checkpoint checkpoints/text_baseline_best.pt --image_checkpoint checkpoints/image_baseline_best.pt
-# python -m src.evaluation.evaluate --modality advanced_fusion --checkpoint_path checkpoints/advanced_fusion_best.pt --text_checkpoint checkpoints/text_baseline_best.pt --image_checkpoint checkpoints/image_baseline_best.pt

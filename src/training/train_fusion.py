@@ -6,7 +6,7 @@ import argparse
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch import amp
@@ -24,10 +24,10 @@ DEVICE = "cuda" if USE_CUDA else "cpu"
 
 # Hyperparameters (fusion-specific)
 BATCH_SIZE = 16  # Lower than image baseline due to dual encoders
-MAX_EPOCHS = 10  # Fusion converges faster than baselines
-PATIENCE = 3  # Standard patience for fusion head training
-LR = 5e-5  # Low LR for fine-tuning fusion head
-WEIGHT_DECAY = 1e-4  # Standard L2 regularization
+MAX_EPOCHS = 15
+PATIENCE = 5
+LR = 2e-5
+WEIGHT_DECAY = 1e-4
 GRAD_CLIP = 1.0
 NUM_CLASSES = 3
 
@@ -86,7 +86,7 @@ def train_one_epoch(model, loader, optimizer, criterion, device, grad_clip=None)
         # Mixed precision context
         with amp.autocast(device_type=DEVICE, enabled=USE_CUDA):
             logits = model(input_ids, attention_mask, images)
-            loss = criterion(logits, labels)
+            loss = model.compute_loss(logits, labels, criterion)
 
         scaler.scale(loss).backward()
 
@@ -138,13 +138,28 @@ def main(args):
     train_dataset = CrisisMultimodalDataset(TRAIN_PATH, IMG_DIR, split="train")
     val_dataset = CrisisMultimodalDataset(VAL_PATH, IMG_DIR, split="val")
 
+    # ----------------- WeightedRandomSampler setup (consistent with other trainers) -----------------
+    # Compute class weights (kept for reporting; not used in loss)
+    class_weights = compute_class_weights(train_dataset).to(DEVICE)
+    print("Class weights:", class_weights.tolist())
+
+    labels = [int(train_dataset[i]["label"]) for i in range(len(train_dataset))]
+    sample_weights = torch.tensor(
+        [class_weights.cpu()[int(l)].item() for l in labels], dtype=torch.double
+    )
+    sampler = WeightedRandomSampler(
+        weights=sample_weights, num_samples=len(sample_weights), replacement=True
+    )
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
-        shuffle=True,
+        sampler=sampler,
+        shuffle=False,
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY,
     )
+
     val_loader = DataLoader(
         val_dataset,
         batch_size=BATCH_SIZE,
@@ -152,12 +167,9 @@ def main(args):
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY,
     )
+    # -----------------------------------------------------------------------------------------------
 
-    # Class weights and criterion
-    class_weights = compute_class_weights(train_dataset).to(DEVICE)
-    print("Class weights:", class_weights.tolist())
-
-    # Model (loads pretrained text + image backbones, freezes them)
+    # Model (loads pretrained text + image backbones, respects their internal freeze policy)
     print(f"\nInitializing Fusion Model...")
     print(f"Text checkpoint: {args.text_checkpoint}")
     print(f"Image checkpoint: {args.image_checkpoint}")
@@ -166,7 +178,6 @@ def main(args):
         num_classes=NUM_CLASSES,
         text_checkpoint=args.text_checkpoint,
         image_checkpoint=args.image_checkpoint,
-        freeze_backbones=True,  # Only train fusion head
     ).to(DEVICE)
 
     # Count trainable parameters
@@ -174,10 +185,10 @@ def main(args):
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Trainable parameters: {trainable_params:,} / {total_params:,}")
 
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    # Criterion: use plain CrossEntropy when using sampler
+    criterion = nn.CrossEntropyLoss()
     optimizer = AdamW(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=LR,
+        model.get_optimizer_params(base_lr=2e-5),
         weight_decay=WEIGHT_DECAY,
     )
     scheduler = ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=2)
