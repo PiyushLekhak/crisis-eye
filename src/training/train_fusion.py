@@ -82,11 +82,19 @@ def train_one_epoch(model, loader, optimizer, criterion, device, grad_clip=None)
         attention_mask = batch["attention_mask"].to(device)
         images = batch["image"].to(device)
         labels = batch["label"].to(device)
+        aux_text = batch["aux_label_text"].to(device)
+        aux_image = batch["aux_label_image"].to(device)
 
         # Mixed precision context
         with amp.autocast(device_type=DEVICE, enabled=USE_CUDA):
             logits = model(input_ids, attention_mask, images)
-            loss = model.compute_loss(logits, labels, criterion)
+            loss = model.compute_loss(
+                logits,
+                labels,
+                aux_text,
+                aux_image,
+                criterion,
+            )
 
         scaler.scale(loss).backward()
 

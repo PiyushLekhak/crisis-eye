@@ -33,15 +33,14 @@ class CrisisMultimodalDataset(Dataset):
             # Training augmentations (matches image baseline)
             self.transforms = transforms.Compose(
                 [
-                    transforms.Resize((256, 256)),
-                    transforms.RandomCrop((224, 224)),
+                    transforms.Resize(256),
+                    transforms.CenterCrop(224),
                     transforms.RandomHorizontalFlip(p=0.5),
                     transforms.ToTensor(),
                     transforms.Normalize(mean, std),
                 ]
             )
         else:
-            # Image baseline uses: Resize(256) → CenterCrop(224)
             self.transforms = transforms.Compose(
                 [
                     transforms.Resize(256),  # Changed: single int, not tuple
@@ -88,17 +87,35 @@ class CrisisMultimodalDataset(Dataset):
             return_tensors="pt",
         )
 
-        # 3. Label
-        label_str = (
+        # ---------------- LABELS ----------------
+
+        # 1. Final label for fusion loss
+        final_label_str = (
             row["label_text"]
             if pd.notna(row["label_text"])
             else row.get("label_image", "not_humanitarian")
         )
-        label = self.label_map.get(label_str, 2)
+        final_label = self.label_map.get(final_label_str, 2)
+
+        # 2. Image-specific auxiliary label
+        img_lbl_str = row.get("label_image", None)
+        if pd.notna(img_lbl_str):
+            aux_label_image = self.label_map.get(img_lbl_str, 2)
+        else:
+            aux_label_image = -100  # ignore index for CrossEntropyLoss
+
+        # 3. Text-specific auxiliary label
+        txt_lbl_str = row.get("label_text", None)
+        if pd.notna(txt_lbl_str):
+            aux_label_text = self.label_map.get(txt_lbl_str, 2)
+        else:
+            aux_label_text = final_label  # safe fallback
 
         return {
             "image": image,
             "input_ids": inputs["input_ids"].squeeze(0),
             "attention_mask": inputs["attention_mask"].squeeze(0),
-            "label": torch.tensor(label, dtype=torch.long),
+            "label": torch.tensor(final_label, dtype=torch.long),
+            "aux_label_text": torch.tensor(aux_label_text, dtype=torch.long),
+            "aux_label_image": torch.tensor(aux_label_image, dtype=torch.long),
         }

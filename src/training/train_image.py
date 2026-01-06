@@ -75,8 +75,8 @@ def get_transforms():
 
     train_transform = transforms.Compose(
         [
-            transforms.Resize((256, 256)),  # Resize to slightly larger
-            transforms.RandomCrop((224, 224)),  # Then random crop to 224
+            transforms.Resize(256),  # Resize to slightly larger
+            transforms.CenterCrop(224),  # Then center crop to 224
             transforms.RandomHorizontalFlip(p=0.5),  # 50% chance flip
             transforms.ToTensor(),
             transforms.Normalize(mean, std),

@@ -124,28 +124,37 @@ class LateFusionModel(nn.Module):
 
         return logits
 
-    def compute_loss(self, logits, labels, criterion, aux_alpha=0.1):
-        """
-        Compute total loss (fusion + auxiliary unimodal losses).
-        aux_alpha: weight for each auxiliary loss (text and image).
-        """
+    def compute_loss(
+        self,
+        logits,
+        labels,
+        aux_labels_text,
+        aux_labels_image,
+        criterion,
+        aux_alpha=0.1,
+    ):
+
         loss_fusion = criterion(logits, labels)
 
-        if (
-            self.training
-            and (self._text_logits is not None)
-            and (self._image_logits is not None)
-        ):
-            loss_text = criterion(self._text_logits, labels)
-            loss_image = criterion(self._image_logits, labels)
+        if self.training:
+            total_aux = 0.0
 
-            total = loss_fusion + aux_alpha * loss_text + aux_alpha * loss_image
+            # Text auxiliary loss (uses TEXT labels)
+            if self._text_logits is not None:
+                loss_text = criterion(self._text_logits, aux_labels_text)
+                total_aux += loss_text
+
+            # Image auxiliary loss (uses IMAGE labels)
+            if self._image_logits is not None:
+                if (aux_labels_image != -100).any():  # avoid all-ignore batch
+                    loss_image = criterion(self._image_logits, aux_labels_image)
+                    total_aux += loss_image
 
             # clear stored aux logits
             self._text_logits = None
             self._image_logits = None
 
-            return total
+            return loss_fusion + aux_alpha * total_aux
 
         return loss_fusion
 
@@ -192,7 +201,7 @@ class LateFusionModel(nn.Module):
         )
 
         return [
-            {"params": fusion_params, "lr": base_lr * 25},
+            {"params": fusion_params, "lr": base_lr * 10},
             {"params": image_last, "lr": base_lr * 5},
             {"params": text_last, "lr": base_lr},
         ]
