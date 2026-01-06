@@ -4,7 +4,9 @@ from torchvision import models
 
 
 class ResNetImageClassifier(nn.Module):
-    def __init__(self, num_classes=3, freeze_backbone=True):
+    def __init__(
+        self, num_classes=3, freeze_backbone=True, dropout=0.5
+    ):  # Added dropout argument
         super().__init__()
 
         # Load pretrained ResNet50 backbone
@@ -13,7 +15,12 @@ class ResNetImageClassifier(nn.Module):
 
         # Replace final FC layer first
         in_features = self.backbone.fc.in_features
-        self.backbone.fc = nn.Linear(in_features, num_classes)
+        self.backbone.fc = nn.Sequential(
+            nn.Dropout(
+                p=dropout
+            ),  # Drop 50% of neurons during training (default dropout value)
+            nn.Linear(in_features, num_classes),
+        )
 
         # Store freeze flag
         self.freeze_backbone = freeze_backbone

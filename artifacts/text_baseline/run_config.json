@@ -13,5 +13,5 @@
   "checkpoint_path": "checkpoints/text_baseline_best.pt",
   "train_data": "data/crisismmd_datasplit_all/task_humanitarian_text_img_train.tsv",
   "val_data": "data/crisismmd_datasplit_all/task_humanitarian_text_img_dev.tsv",
-  "git_commit": "1933a6a10a70d6855d24e0a6373601f8ef0a5c11"
+  "git_commit": "032782763ffdc10dd5a4b12c03fb42469b6ba974"
 }

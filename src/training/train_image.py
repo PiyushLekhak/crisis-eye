@@ -30,7 +30,7 @@ BATCH_SIZE = 32  # Standard for ResNet50 on modern GPUs
 MAX_EPOCHS = 15  # Images need more epochs than text
 PATIENCE = 5  # Higher patience for CNNs (they learn in plateaus)
 LR = 1e-4  # Higher LR for CNNs (vs 2e-5 for BERT)
-WEIGHT_DECAY = 1e-4  # Standard L2 regularization for vision
+WEIGHT_DECAY = 1e-2
 GRAD_CLIP = 1.0
 NUM_CLASSES = 3
 
@@ -65,19 +65,22 @@ def seed_everything(seed: int):
 
 def get_transforms():
     """
-    Standard ImageNet preprocessing + light augmentation for baseline.
-    Train: RandomCrop + HorizontalFlip (standard baseline augmentation)
-    Val: Center crop (no augmentation)
+    FIX: Stronger Data Augmentation to prevent Overfitting.
     """
-    # ImageNet statistics (ResNet50 was pretrained on these)
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
 
     train_transform = transforms.Compose(
         [
-            transforms.Resize(256),  # Resize to slightly larger
-            transforms.CenterCrop(224),  # Then center crop to 224
-            transforms.RandomHorizontalFlip(p=0.5),  # 50% chance flip
+            # 1. RandomResizedCrop: The MVP of anti-overfitting.
+            # It zooms in/out (80% to 100% scale), forcing the model to recognize
+            # features (rubble) rather than exact pixel locations.
+            transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
+            # 2. Lighting Noise: Disaster photos have varied lighting (fire, night, smoke).
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            # 3. Geometry Noise: Slight rotations.
+            transforms.RandomRotation(15),
+            transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize(mean, std),
         ]
@@ -85,8 +88,8 @@ def get_transforms():
 
     val_transform = transforms.Compose(
         [
-            transforms.Resize(256),  # Resize to 256
-            transforms.CenterCrop(224),  # Center crop to 224
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
             transforms.ToTensor(),
             transforms.Normalize(mean, std),
         ]

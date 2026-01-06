@@ -154,4 +154,4 @@ weighted avg     0.8315    0.8190    0.8229      2237
 ==================================================
 
 Training finished. Best Val macro-F1: 0.7581
-Total time (min): 3.31
+Total time (min): 3.45
